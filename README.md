@@ -179,3 +179,108 @@ Optional bonus:
 - add authentication for SSE or HTTP transport
 - support both SQLite and PostgreSQL with the same MCP surface
 - add richer output annotations or pagination
+
+---
+
+# Reference Implementation (this repo)
+
+This repo ships a working solution under `implementation/`, packaged for Docker
+and tested with MCP Inspector over HTTP transport.
+
+## Layout
+
+```
+implementation/
+  db.py                # SQLiteAdapter + ValidationError
+  init_db.py           # schema + seed + create_database()
+  mcp_server.py        # FastMCP app: 3 tools + 2 resources
+  verify_server.py     # end-to-end smoke test over HTTP
+  requirements.txt
+  Dockerfile
+  tests/test_db.py     # 12 adapter unit tests
+docker-compose.yml
+start_inspector.sh / start_inspector.ps1
+plan.md
+```
+
+## Tools and resources
+
+| Surface                          | Kind             | Notes                                                 |
+| -------------------------------- | ---------------- | ----------------------------------------------------- |
+| `search`                         | tool             | filters, projection, ORDER BY, LIMIT≤200, OFFSET      |
+| `insert`                         | tool             | parameterized; rejects empty values / unknown columns |
+| `aggregate`                      | tool             | `count`, `avg`, `sum`, `min`, `max`, optional GROUP BY |
+| `schema://database`              | resource         | JSON snapshot of every table                          |
+| `schema://table/{table_name}`    | resource template| JSON schema of one table                              |
+
+Operators allowed in `filters[*].op`: `=`, `!=`, `<`, `<=`, `>`, `>=`, `LIKE`, `IN`.
+Non-`count` metrics require a numeric column.
+
+## Run with Docker
+
+```bash
+docker compose up --build
+# server now listening on http://localhost:8000/mcp
+```
+
+The database file lives in `./implementation/data/students.db` (created on
+first boot, idempotent thereafter).
+
+## Demo with MCP Inspector
+
+In a second terminal:
+
+```bash
+# macOS / Linux
+./start_inspector.sh
+
+# Windows PowerShell
+./start_inspector.ps1
+```
+
+In the Inspector UI:
+
+1. Transport Type = **Streamable HTTP**
+2. URL = `http://localhost:8000/mcp`
+3. Click **Connect**
+
+Then exercise the surface:
+
+- **Tools tab** — verify `search`, `insert`, `aggregate` appear with schemas.
+- `search` → `{"table":"students","filters":[{"column":"cohort","op":"=","value":"A1"}],"order_by":"score","descending":true}`
+- `insert` → `{"table":"students","values":{"name":"Demo","cohort":"A1","score":9.0}}`
+- `aggregate` → `{"table":"students","metric":"avg","column":"score","group_by":"cohort"}`
+- **Resources tab** — read `schema://database` and `schema://table/students`.
+- **Error case** — call `search` with `{"table":"hackers"}` → returns
+  `{"error":"unknown table: 'hackers'", "kind":"ValidationError"}`.
+
+## Verify end-to-end
+
+```bash
+python implementation/verify_server.py --url http://localhost:8000/mcp
+```
+
+All checks should report `[PASS]`.
+
+## Run adapter tests
+
+```bash
+pip install -r implementation/requirements.txt
+pytest implementation/tests -q
+```
+
+## Client config (Claude Code, HTTP)
+
+```json
+{
+  "mcpServers": {
+    "sqlite-lab": {
+      "type": "http",
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}
+```
+
+For stdio clients, set `MCP_TRANSPORT=stdio` and follow the patterns in
+`Tips.md`.

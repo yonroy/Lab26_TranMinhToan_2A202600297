@@ -1,0 +1,15 @@
+services:
+  mcp:
+    build: ./implementation
+    image: sqlite-lab-mcp:latest
+    container_name: sqlite-lab-mcp
+    ports:
+      - "8000:8000"
+    environment:
+      MCP_TRANSPORT: http
+      HOST: 0.0.0.0
+      PORT: "8000"
+      DB_PATH: /data/students.db
+    volumes:
+      - ./implementation/data:/data
+    restart: unless-stopped
